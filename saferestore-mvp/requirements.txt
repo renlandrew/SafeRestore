@@ -1,0 +1,7 @@
+flask>=3.0
+flask-cors>=4.0
+torch>=2.2
+pydicom>=2.4
+pillow>=10.0
+opencv-python>=4.8
+numpy>=1.24

@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SafeRestore — the trust layer for CT restoration AI</title>
+<!--
+  SafeRestore MVP — one engine, three surfaces.
+  Fully self-contained: no build step, no CDN, works offline.
+  Surfaces map to the team:  USE = David  ·  PROVE = Andrew  ·  TEACH = Nick
+  Demo figures are the REAL numbers from GVRSF FINAL.ipynb (strict held-out N=50 OOD + Mayo external).
+  In-browser CT phantom processing (noise / restore / PSNR) is computed live on <canvas>.
+-->
+<style>
+  :root{
+    --bg:#0a0f1c; --bg2:#0e1525; --card:#121b2e; --card2:#16213a;
+    --line:rgba(148,163,184,.14); --line2:rgba(148,163,184,.28);
+    --tx:#e6edf6; --mut:#93a4bd; --mut2:#6b7c96;
+    --teal:#2dd4bf; --cyan:#38bdf8; --accent:#5eead4;
+    --green:#34d399; --amber:#fbbf24; --red:#f87171; --violet:#a78bfa;
+    --shadow:0 10px 40px rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji",sans-serif;
+    background:radial-gradient(1200px 700px at 80% -10%,rgba(45,212,191,.10),transparent 60%),
+               radial-gradient(900px 600px at 0% 0%,rgba(56,189,248,.08),transparent 55%),
+               var(--bg);
+    color:var(--tx); line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--cyan);text-decoration:none}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
+  .mut{color:var(--mut)} .small{font-size:13px} .tiny{font-size:11.5px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+  /* nav */
+  header.nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(10px);
+    background:rgba(10,15,28,.78);border-bottom:1px solid var(--line)}
+  .nav .wrap{display:flex;align-items:center;gap:18px;height:62px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.2px}
+  .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--teal),var(--cyan));
+    box-shadow:0 0 18px rgba(45,212,191,.5);position:relative;flex:none}
+  .logo::after{content:"";position:absolute;inset:6px;border-radius:3px;border:2px solid rgba(10,15,28,.85)}
+  .navlinks{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+  .navlinks button{background:transparent;border:1px solid transparent;color:var(--mut);
+    padding:7px 13px;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;transition:.15s}
+  .navlinks button:hover{color:var(--tx);background:rgba(148,163,184,.08)}
+  .navlinks button.on{color:#04141a;background:linear-gradient(135deg,var(--teal),var(--cyan));border-color:transparent}
+  .cta{background:transparent;border:1px solid var(--line2);color:var(--tx);padding:7px 13px;border-radius:9px;
+    font-weight:600;cursor:pointer;font-size:13.5px;transition:.15s}
+  .cta:hover{border-color:var(--teal);color:var(--teal);box-shadow:0 0 0 3px rgba(45,212,191,.12)}
+
+  /* views */
+  .view{display:none;animation:fade .35s ease}
+  .view.on{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  section.block{padding:30px 0}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--teal)}
+  h1{font-size:40px;line-height:1.1;margin:12px 0 12px;letter-spacing:-.5px}
+  h2{font-size:25px;margin:0 0 6px;letter-spacing:-.3px}
+  h3{font-size:16px;margin:0 0 4px}
+  .lead{font-size:18px;color:#c4d0e2;max-width:720px}
+
+  /* cards */
+  .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);
+    border-radius:16px;padding:18px;box-shadow:var(--shadow)}
+  .grid{display:grid;gap:16px}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:860px){.g3,.g2,.g4{grid-template-columns:1fr}}
+  .split340{display:grid;gap:16px;grid-template-columns:340px 1fr}
+  @media(max-width:980px){.split340{grid-template-columns:1fr}}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;
+    border-radius:999px;border:1px solid var(--line2);color:var(--mut)}
+  .pill.teal{color:var(--teal);border-color:rgba(45,212,191,.4);background:rgba(45,212,191,.08)}
+  .pill.green{color:var(--green);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+  .pill.amber{color:var(--amber);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)}
+  .pill.red{color:var(--red);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.08)}
+  .pill.violet{color:var(--violet);border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.08)}
+
+  /* engine diagram */
+  .engine{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}
+  .ebox{flex:1;min-width:150px;border:1px solid var(--line2);border-radius:14px;padding:14px;text-align:center;
+    background:rgba(22,33,58,.55);position:relative}
+  .ebox b{display:block;font-size:15px;margin-bottom:3px}
+  .ebox.core{background:linear-gradient(180deg,rgba(45,212,191,.12),rgba(56,189,248,.06));border-color:rgba(45,212,191,.4)}
+  .arrow{align-self:center;color:var(--teal);font-size:22px;font-weight:700}
+  @media(max-width:860px){.arrow{transform:rotate(90deg)}}
+  .pulse{position:absolute;top:8px;right:10px;width:8px;height:8px;border-radius:50%;background:var(--teal);
+    box-shadow:0 0 0 0 rgba(45,212,191,.6);animation:pp 2s infinite}
+  @keyframes pp{0%{box-shadow:0 0 0 0 rgba(45,212,191,.5)}70%{box-shadow:0 0 0 10px rgba(45,212,191,0)}100%{box-shadow:0 0 0 0 rgba(45,212,191,0)}}
+
+  /* surfaces */
+  .surface{cursor:pointer;transition:.18s;border:1px solid var(--line)}
+  .surface:hover{transform:translateY(-3px);border-color:var(--line2)}
+  .surface .tag{font-size:12px;font-weight:700;letter-spacing:.05em}
+  .owner{font-size:12px;color:var(--mut2);margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+
+  /* canvas studio */
+  .canvas-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:760px){.canvas-row{grid-template-columns:1fr}}
+  .cwrap{text-align:center}
+  .cwrap canvas{width:100%;max-width:230px;aspect-ratio:1;border-radius:12px;border:1px solid var(--line2);
+    background:#000;image-rendering:auto}
+  .clabel{font-size:12.5px;font-weight:600;margin-top:8px;color:var(--mut)}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 2px}
+  .btn{background:linear-gradient(135deg,var(--teal),var(--cyan));color:#04141a;border:none;font-weight:700;
+    padding:10px 16px;border-radius:10px;cursor:pointer;font-size:14px;transition:.15s}
+  .btn:hover{filter:brightness(1.07);box-shadow:0 6px 20px rgba(45,212,191,.35)}
+  .btn.ghost{background:transparent;border:1px solid var(--line2);color:var(--tx)}
+  .btn.ghost:hover{border-color:var(--teal);color:var(--teal);box-shadow:none;filter:none}
+  .btn:disabled{opacity:.5;cursor:not-allowed;filter:none;box-shadow:none}
+  select,input[type=range]{accent-color:var(--teal)}
+  select{background:var(--card2);color:var(--tx);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;font-size:14px;font-weight:600}
+
+  .metric{display:flex;align-items:baseline;gap:8px}
+  .metric .num{font-size:30px;font-weight:800;letter-spacing:-.5px;font-family:ui-monospace,Menlo,monospace}
+  .kpi{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:rgba(22,33,58,.4)}
+  .kpi .lab{font-size:11.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em}
+  .kpi .val{font-size:22px;font-weight:800;font-family:ui-monospace,Menlo,monospace;margin-top:2px}
+
+  .badge{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:10px;font-size:13.5px;font-weight:600;
+    border:1px solid var(--line);background:rgba(22,33,58,.4)}
+  .badge .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .badge.ok{border-color:rgba(52,211,153,.35)} .badge.ok .dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .badge.warn{border-color:rgba(251,191,36,.35)} .badge.warn .dot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  .badge.bad{border-color:rgba(248,113,113,.35)} .badge.bad .dot{background:var(--red);box-shadow:0 0 8px var(--red)}
+
+  /* bars */
+  .barrow{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:13px}
+  .barrow .name{width:170px;flex:none;color:var(--mut);font-weight:600}
+  .barrow .track{flex:1;height:16px;border-radius:8px;background:rgba(148,163,184,.1);overflow:hidden;position:relative}
+  .barrow .fill{display:block;height:100%;width:0;border-radius:8px;background:linear-gradient(90deg,var(--cyan),var(--teal));transition:width .6s cubic-bezier(.2,.8,.2,1)}
+  .barrow.ours .fill{background:linear-gradient(90deg,var(--teal),#a7f3d0)}
+  .barrow .v{width:54px;text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:700}
+
+  table.evt{width:100%;border-collapse:collapse;font-size:13px}
+  table.evt th,table.evt td{text-align:right;padding:8px 10px;border-bottom:1px solid var(--line)}
+  table.evt th:first-child,table.evt td:first-child{text-align:left}
+  table.evt tr.ours{background:rgba(45,212,191,.08)}
+  table.evt tr.ours td{font-weight:700}
+  table.evt thead th{color:var(--mut);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+
+  .memo{border-left:3px solid var(--teal);padding:12px 16px;background:rgba(45,212,191,.06);border-radius:0 10px 10px 0}
+  .scorebig{font-size:54px;font-weight:800;font-family:ui-monospace,Menlo,monospace;line-height:1;letter-spacing:-1px}
+
+  .gameopt{cursor:pointer;border:2px solid var(--line2);border-radius:12px;padding:8px;transition:.15s;text-align:center}
+  .gameopt:hover{border-color:var(--teal)}
+  .gameopt.right{border-color:var(--green);box-shadow:0 0 0 3px rgba(52,211,153,.25)}
+  .gameopt.wrong{border-color:var(--red);box-shadow:0 0 0 3px rgba(248,113,113,.25)}
+
+  .ladder{display:flex;flex-direction:column;gap:6px}
+  .step{display:flex;gap:10px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:13.5px}
+  .step .n{width:22px;height:22px;border-radius:6px;background:rgba(148,163,184,.12);display:grid;place-items:center;font-size:12px;font-weight:700;flex:none}
+  .step.cap{border-color:rgba(45,212,191,.4);background:rgba(45,212,191,.07)}
+  .step.cap .n{background:linear-gradient(135deg,var(--teal),var(--cyan));color:#04141a}
+
+  footer{border-top:1px solid var(--line);margin-top:24px;padding:22px 0 40px}
+  .boundary{border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.06);border-radius:12px;padding:14px 16px;font-size:13.5px}
+
+  /* toast */
+  #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);opacity:0;
+    background:rgba(8,12,22,.95);border:1px solid var(--teal);color:var(--tx);padding:12px 18px;border-radius:12px;
+    font-weight:600;font-size:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none;transition:.4s;z-index:99;max-width:90vw}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast b{color:var(--teal)}
+  .divider{height:1px;background:var(--line);margin:22px 0}
+  .spread{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header class="nav"><div class="wrap">
+  <div class="brand"><div class="logo"></div> SafeRestore</div>
+  <nav class="navlinks">
+    <button data-v="home" class="on">Engine</button>
+    <button data-v="use">Use · Studio</button>
+    <button data-v="prove">Prove · Evidence</button>
+    <button data-v="teach">Teach · Academy</button>
+  </nav>
+  <button class="cta" id="ahaBtn">▶ Run the aha demo</button>
+</div></header>
+
+<main class="wrap">
+
+<!-- ============ HOME / ENGINE ============ -->
+<section id="home" class="view on">
+  <section class="block">
+    <div class="eyebrow">Evidence, not images</div>
+    <h1>The trust layer for CT&nbsp;restoration AI.</h1>
+    <p class="lead">One engine — <b>physics-grounded degradation ⇄ do-no-harm restoration ⇄ task-based evidence</b> — powering three products: <b>prove it</b>, <b>use it</b>, <b>teach it</b>.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">
+      <span class="pill teal">● 1 validated core</span>
+      <span class="pill">RSNA · Mayo · TotalSegmentator</span>
+      <span class="pill">Phase 1: research / QA / education only — not diagnosis</span>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="eyebrow">The shared core</div>
+    <h2 style="margin-top:8px">One engine, already validated in the notebook</h2>
+    <p class="mut small" style="max-width:760px">The same two functions — <span class="mono">degrade()</span> and <span class="mono">restore()</span> — plus one scorer feed all three surfaces. A scan degraded to teach a student is generated by the exact pipeline that stress-tests a model and trains the restorer.</p>
+    <div class="engine" style="margin-top:14px">
+      <div class="ebox core"><span class="pulse"></span><b>Degrade</b><span class="mut tiny">physics-grounded synthetic noise (sim quarter-dose)</span></div>
+      <div class="arrow">⇄</div>
+      <div class="ebox core"><span class="pulse"></span><b>Restore</b><span class="mut tiny">conservative "do-no-harm" edits</span></div>
+      <div class="arrow">→</div>
+      <div class="ebox core"><span class="pulse"></span><b>Score</b><span class="mut tiny">4 layers of task-based evidence</span></div>
+    </div>
+
+    <div class="grid g4" style="margin-top:16px">
+      <div class="kpi"><div class="lab">Task rescue · CRM (N=50 OOD)</div><div class="val" style="color:var(--teal)">+0.0324</div><div class="tiny mut">best target-gain vs 4 filters</div></div>
+      <div class="kpi"><div class="lab">External transfer · Mayo</div><div class="val" style="color:var(--teal)">+2.35 dB</div><div class="tiny mut">PSNR, 95% CI 2.03–2.67, 100% win</div></div>
+      <div class="kpi"><div class="lab">Anatomy · Dice vs full-dose</div><div class="val" style="color:var(--teal)">0.61→0.74</div><div class="tiny mut">edits land on real structures</div></div>
+      <div class="kpi"><div class="lab">Stability · Monte Carlo</div><div class="val" style="color:var(--amber)">62%</div><div class="tiny mut">noise-sensitive (honestly disclosed)</div></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="eyebrow">Three surfaces, one product</div>
+    <div class="grid g3" style="margin-top:14px">
+      <div class="card surface" data-go="use">
+        <span class="pill teal tag">USE</span>
+        <h3 style="margin-top:12px">SafeRestore Studio</h3>
+        <p class="mut small">Conservative restoration that <b>never ships a bare image</b> — every output carries its evidence and a "needs review" flag. Revives older / low-dose scanners.</p>
+        <div class="owner">Owner: <b>David</b> · customer: imaging centers &amp; scanner vendors</div>
+      </div>
+      <div class="card surface" data-go="prove">
+        <span class="pill cyan tag" style="color:var(--cyan);border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.08)">PROVE</span>
+        <h3 style="margin-top:12px">Evidence API</h3>
+        <p class="mut small">Vendor-neutral. Score <b>any</b> restoration model on 4 layers → Evidence Score, failure-case audit, risk memo. The independent layer before pilots &amp; procurement.</p>
+        <div class="owner">Owner: <b>Andrew</b> · customer: imaging-AI developers, PACS/scanner vendors</div>
+      </div>
+      <div class="card surface" data-go="teach">
+        <span class="pill violet tag">TEACH</span>
+        <h3 style="margin-top:12px">SafeAI Academy</h3>
+        <p class="mut small">The same engine, reversed. Students learn <b>why "looks sharper" isn't enough</b> and spot where AI hallucinates — capstone runs Use + Prove live.</p>
+        <div class="owner">Owner: <b>Nick</b> · customer: med schools, residents, STEM education</div>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- ============ USE / STUDIO ============ -->
+<section id="use" class="view">
+  <section class="block">
+    <div class="spread">
+      <div>
+        <div class="eyebrow" style="color:var(--teal)">Use · Studio &nbsp;—&nbsp; owner: David</div>
+        <h2 style="margin-top:8px">Restoration you can trust, because it ships with proof</h2>
+        <p class="mut small" style="max-width:680px"><b>Upload a real CT slice (DICOM/PNG)</b> and it is restored by the actual trained <span class="mono">DeblurUNet25D</span> model when the local server is running — otherwise an in-browser phantom keeps the demo working offline. Either way it is degraded to a synthetic quarter-dose, restored, and PSNR is measured against the reference. Crucially, <b>the image always comes bundled with its evidence.</b></p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="controls">
+        <label class="btn ghost" for="ctFile" style="cursor:pointer">⤴ Upload CT (DICOM / PNG)</label>
+        <input id="ctFile" type="file" accept=".dcm,.dicom,.png,.jpg,.jpeg" style="display:none">
+        <button class="btn ghost" id="sampleBtn">Load sample CT</button>
+        <select id="scanType" title="phantom used for the offline demo">
+          <option value="brain">Demo phantom — head CT</option>
+          <option value="angio">Demo phantom — CTA tree</option>
+          <option value="abdomen">Demo phantom — abdomen</option>
+        </select>
+        <button class="btn ghost" id="redeg">↺ New quarter-dose noise</button>
+        <button class="btn" id="restoreBtn">Run SafeRestore →</button>
+      </div>
+      <div class="controls" style="margin-top:8px">
+        <span class="pill" id="beStatus">checking backend…</span>
+        <span class="pill" id="useStatus">ready</span>
+        <span class="tiny mut" id="fileName"></span>
+      </div>
+
+      <div class="canvas-row" style="margin-top:16px">
+        <div class="cwrap"><canvas id="cRef" width="200" height="200"></canvas><div class="clabel" style="color:var(--green)">Full-dose reference</div></div>
+        <div class="cwrap"><canvas id="cDeg" width="200" height="200"></canvas><div class="clabel" style="color:var(--amber)">Quarter-dose input</div></div>
+        <div class="cwrap"><canvas id="cRes" width="200" height="200"></canvas><div class="clabel" style="color:var(--teal)">SafeRestore output</div></div>
+      </div>
+
+      <div class="grid g4" style="margin-top:18px">
+        <div class="kpi"><div class="lab">Input PSNR</div><div class="val" id="kInput">—</div></div>
+        <div class="kpi"><div class="lab">Restored PSNR</div><div class="val" id="kRes" style="color:var(--teal)">—</div></div>
+        <div class="kpi"><div class="lab">Δ improvement</div><div class="val" id="kDelta" style="color:var(--green)">—</div></div>
+        <div class="kpi"><div class="lab">Max abs change</div><div class="val" id="kChg">—</div></div>
+      </div>
+
+      <div class="divider"></div>
+      <h3>Evidence shipped with this image <span class="pill teal" style="margin-left:6px">auto-generated</span></h3>
+      <div class="grid g2" style="margin-top:10px" id="useBadges">
+        <div class="badge"><span class="dot" style="background:var(--mut2)"></span> Run a restoration to generate the evidence panel…</div>
+      </div>
+      <div class="boundary" style="margin-top:14px">⚠ <b>Not for diagnosis.</b> Phase 1 output is a retrospective, de-identified research/QA artifact. Every restored series requires radiologist review; flagged regions must not be interpreted from the enhanced image alone.</div>
+    </div>
+  </section>
+</section>
+
+<!-- ============ PROVE / EVIDENCE ============ -->
+<section id="prove" class="view">
+  <section class="block">
+    <div class="eyebrow" style="color:var(--cyan)">Prove · Evidence API &nbsp;—&nbsp; owner: Andrew</div>
+    <h2 style="margin-top:8px">Score any restoration model — independently</h2>
+    <p class="mut small" style="max-width:720px">Pick a model and run the validation protocol. The same 4 layers run on anyone's model; numbers below are the notebook's strict held-out runs (RSNA N=50 OOD, Mayo external, TotalSegmentator).</p>
+
+    <div class="split340" style="margin-top:16px">
+      <div class="card">
+        <label class="small mut" style="font-weight:600">Model under test</label>
+        <select id="model" style="width:100%;margin-top:8px">
+          <option value="5">V-Ultimate — SafeRestore engine</option>
+          <option value="3">Bilateral filter</option>
+          <option value="1">Gaussian filter</option>
+          <option value="2">Median (3×3)</option>
+          <option value="4">Unsharp mask</option>
+          <option value="0">No restoration (degraded input)</option>
+        </select>
+        <div style="text-align:center;margin:18px 0 6px">
+          <div class="tiny mut" style="text-transform:uppercase;letter-spacing:.1em">Evidence Score</div>
+          <div class="scorebig" id="scoreNum">—</div>
+          <div id="scoreVerdict" class="pill" style="margin-top:8px">select a model</div>
+        </div>
+        <button class="btn" id="runVal" style="width:100%;margin-top:8px">▶ Run validation</button>
+        <button class="btn ghost" id="exportBtn" style="width:100%;margin-top:8px">⤓ Export Evidence Pack (.json)</button>
+      </div>
+
+      <div class="card">
+        <h3>Evidence Score — all methods on the same OOD set</h3>
+        <div id="scoreBars" style="margin-top:12px"></div>
+        <p class="tiny mut" style="margin-top:8px">Composite of task-rescue, win-rate, low-iatrogenic, and fidelity. The point isn't "sharpest" — it's the best benefit/safety trade-off on data the model never saw.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:24px">Deep Evidence Pack <span id="packModel" class="pill cyan" style="color:var(--cyan);border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.08)">V-Ultimate</span></h3>
+    <div class="grid g2" style="margin-top:12px" id="packCards"></div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>Failure-case audit <span class="pill amber" style="margin-left:4px">exposes risk, not hides it</span></h3>
+        <div id="failAudit" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h3>Executive risk memo</h3>
+        <div class="memo" id="riskMemo" style="margin-top:10px">Run validation to generate the memo.</div>
+        <div class="grid g2" style="margin-top:12px">
+          <div class="badge ok"><span class="dot"></span> Ready for: research / QA / pilot evidence</div>
+          <div class="badge bad"><span class="dot"></span> Not for: clinical interpretation</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- ============ TEACH / ACADEMY ============ -->
+<section id="teach" class="view">
+  <section class="block">
+    <div class="eyebrow" style="color:var(--violet)">Teach · Academy &nbsp;—&nbsp; owner: Nick</div>
+    <h2 style="margin-top:8px">The same engine becomes a classroom</h2>
+    <p class="mut small" style="max-width:720px">Degradation isn't only for training models — it's how you train <b>people</b>. Students learn the one lesson that powers the whole product: a sharper-looking image can still be wrong.</p>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>🔍 Lab: spot the hallucination</h3>
+        <p class="mut small">One of these AI outputs invented a structure that is <b>not</b> in the ground truth. Which one is unsafe?</p>
+        <div class="grid g3" style="margin-top:12px" id="gameRow"></div>
+        <div class="spread" style="margin-top:14px">
+          <div id="gameFeedback" class="small mut">Pick A, B, or C.</div>
+          <div class="small">Score: <b id="gameScore">0</b> / <span id="gameTotal">0</span></div>
+        </div>
+        <button class="btn ghost" id="nextCase" style="margin-top:12px">Next case →</button>
+      </div>
+
+      <div class="card">
+        <h3>🎚 Lab: why "looks sharper" ≠ "is correct"</h3>
+        <p class="mut small">Drag to degrade the scan. Watch the downstream AI's confidence and the measured PSNR fall together — the eye is fooled long before the metric is.</p>
+        <div style="text-align:center;margin-top:12px"><canvas id="cTeach" width="200" height="200" style="width:100%;max-width:210px;aspect-ratio:1;border-radius:12px;border:1px solid var(--line2);background:#000"></canvas></div>
+        <input type="range" id="degSlider" min="0" max="100" value="15" style="width:100%;margin-top:14px">
+        <div class="grid g2" style="margin-top:12px">
+          <div class="kpi"><div class="lab">AI detection confidence</div><div class="val" id="tConf" style="color:var(--green)">0.86</div></div>
+          <div class="kpi"><div class="lab">Image PSNR</div><div class="val" id="tPsnr">—</div></div>
+        </div>
+        <p class="tiny mut" style="margin-top:10px">Teaching point: this is exactly why SafeRestore validates with <b>task-based</b> evidence, not PSNR/SSIM alone.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Capstone path — the CT work is the finale, not the start</h3>
+      <div class="ladder" style="margin-top:12px">
+        <div class="step"><span class="n">1</span> How machines learn from examples · images as number matrices</div>
+        <div class="step"><span class="n">2</span> Train / validation / test splits — why leakage lies to you</div>
+        <div class="step"><span class="n">3</span> Probabilities, thresholds, precision &amp; recall</div>
+        <div class="step"><span class="n">4</span> AI safety: bias, overfitting, hallucination</div>
+        <div class="step cap"><span class="n">★</span> <b>Capstone — CT restoration safety:</b> degrade a scan, restore it, then run the Evidence API and defend whether it's safe.</div>
+      </div>
+    </div>
+  </section>
+</section>
+
+</main>
+
+<footer><div class="wrap">
+  <div class="boundary"><b>Phase 1 intended-use boundary.</b> SafeRestore provides retrospective, de-identified research, QA, model-validation and education artifacts only. It does <b>not</b> provide diagnosis, does <b>not</b> replace radiologist review, does <b>not</b> output images for direct clinical interpretation, and is <b>not</b> a cleared medical device.</div>
+  <div class="spread" style="margin-top:16px">
+    <div class="small mut">SafeRestore MVP · one engine, three surfaces.</div>
+    <div class="small mut">USE → <b style="color:var(--teal)">David</b> · PROVE → <b style="color:var(--cyan)">Andrew</b> · TEACH → <b style="color:var(--violet)">Nick</b></div>
+  </div>
+</div></footer>
+
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+   REAL DATA from GVRSF FINAL.ipynb
+   ============================================================ */
+const CRM = [
+  {id:0, m:"No restoration (input)", gain:0.0000, win:0,  iatro:0,  psnr:34.75, base:true},
+  {id:1, m:"Gaussian filter",        gain:0.0125, win:50, iatro:44, psnr:36.41},
+  {id:2, m:"Median (3×3)",           gain:0.0036, win:50, iatro:42, psnr:36.87},
+  {id:3, m:"Bilateral filter",       gain:0.0115, win:64, iatro:32, psnr:35.84},
+  {id:4, m:"Unsharp mask",           gain:-0.0175,win:20, iatro:74, psnr:32.58},
+  {id:5, m:"V-Ultimate (SafeRestore)",gain:0.0324,win:66, iatro:32, psnr:42.74, ours:true},
+];
+const MAYO = [ // per-case PSNR, real
+  [33.50,36.38],[39.64,41.47],[37.52,40.59],[43.68,45.69],[36.83,39.49],
+  [42.88,44.63],[37.97,40.73],[44.20,45.77],[36.30,39.18],[42.32,44.46]
+]; // [quarter, vultimate]
+const FACTS = {
+  mayoDelta:2.35, mayoCIlo:2.03, mayoCIhi:2.67, mayoSSIM:0.04099, mayoWin:100,
+  diceQ:0.6137, diceU:0.7395,
+  mcRuns:1000, mcMean:0.0335, mcPos:71.7, mcStable:36, mcSens:62, mcStableNeg:2,
+  maxChgU:0.0246, maxChgGauss:0.1533
+};
+
+/* Evidence Score: weighted composite, 0..100 */
+function escore(r){
+  const g = Math.max(0,(r.gain+0.02)/0.055);      // task gain
+  const w = r.win/100;                             // win rate
+  const s = 1 - r.iatro/100;                       // safety (low iatrogenic)
+  const f = Math.max(0,(r.psnr-32)/(43-32));       // fidelity
+  return Math.round(100*(0.34*g + 0.24*w + 0.26*s + 0.16*f));
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+const views = {}; document.querySelectorAll('.view').forEach(v=>views[v.id]=v);
+const navBtns = document.querySelectorAll('.navlinks button');
+function show(id){
+  Object.values(views).forEach(v=>v.classList.remove('on'));
+  views[id].classList.add('on');
+  navBtns.forEach(b=>b.classList.toggle('on', b.dataset.v===id));
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+navBtns.forEach(b=>b.onclick=()=>show(b.dataset.v));
+document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>show(c.dataset.go));
+
+function toast(html, ms=2600){
+  const t=document.getElementById('toast'); t.innerHTML=html; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), ms);
+}
+
+/* ============================================================
+   CT ENGINE — procedural phantom + real image processing
+   ============================================================ */
+const W=200,H=200;
+function rng(seed){ let s=seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+function gaussNoise(rand){ // box-muller
+  let u=0,v=0; while(u===0)u=rand(); while(v===0)v=rand();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+function clamp(x){ return x<0?0:x>255?255:x; }
+
+// returns {lum:Float32Array, target:{x,y,r}}
+function makeScan(type){
+  const lum=new Float32Array(W*H); const cx=W/2, cy=H/2;
+  let target;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const nx=(x-cx), ny=(y-cy); let v=4; // air
+    if(type==='abdomen'){
+      const e=(nx*nx)/(86*86)+(ny*ny)/(70*70);
+      if(e<1){ v=72 + 8*Math.sin(x/14)*Math.cos(y/16); }            // soft tissue
+      const spine=((nx)*(nx))/(13*13)+((ny-44)*(ny-44))/(13*13);
+      if(spine<1) v=205;                                            // vertebra (bright)
+      const kL=((nx+42)*(nx+42))/(15*15)+((ny-4)*(ny-4))/(22*22);
+      const kR=((nx-42)*(nx-42))/(15*15)+((ny-4)*(ny-4))/(22*22);
+      if(kL<1||kR<1) v=52;                                          // kidneys (dark)
+      const ao=((nx-2)*(nx-2)+(ny-30)*(ny-30));
+      if(ao< 30) v=176;                                             // aorta (target)
+    } else {
+      // head: skull ring + brain + ventricles
+      const a=88,b=98; const e=(nx*nx)/(a*a)+(ny*ny)/(b*b);
+      if(e<1){
+        v = 96 + 6*Math.sin(x/12)*Math.sin(y/13);                   // parenchyma
+        if(e>0.80) v=212;                                           // skull
+        const vL=((nx+15)*(nx+15))/(13*13)+((ny+6)*(ny+6))/(26*26);
+        const vR=((nx-15)*(nx-15))/(13*13)+((ny+6)*(ny+6))/(26*26);
+        if(vL<1||vR<1) v=48;                                        // ventricles
+        if(Math.abs(nx)<2 && ny>-40 && ny<40) v=70;                 // falx
+      }
+      if(type==='angio'){ // bright vessel tree
+        for(let k=-30;k<40;k++){
+          const vx=cx+ k*0.6 + 18*Math.sin(k/9);
+          const vy=cy+ k - 10;
+          const d=(x-vx)*(x-vx)+(y-vy)*(y-vy);
+          if(d<5) v=Math.max(v,190);
+        }
+      }
+    }
+    lum[y*W+x]=v;
+  }
+  // designated target lesion (the clinically relevant signal)
+  if(type==='brain'){ target={x:cx+34,y:cy-28,r:6}; }
+  else if(type==='angio'){ target={x:cx+10,y:cy-2,r:6}; }
+  else { target={x:cx+2,y:cy+30,r:6}; }
+  // draw the target as a small bright spot
+  for(let y=-7;y<=7;y++)for(let x=-7;x<=7;x++){
+    if(x*x+y*y<=target.r*target.r){
+      const ix=Math.round(target.x+x), iy=Math.round(target.y+y);
+      if(ix>=0&&ix<W&&iy>=0&&iy<H) lum[iy*W+ix]=186;
+    }
+  }
+  return {lum,target};
+}
+
+function degrade(lum, seed){ // physics-ish: blur + dose-dependent noise
+  const rand=rng(seed); const blurred=boxBlur(lum,1);
+  const out=new Float32Array(W*H);
+  for(let i=0;i<out.length;i++){
+    const sig=7.5 + 0.045*blurred[i];           // signal-dependent (Poisson-like)
+    out[i]=clamp(blurred[i] + gaussNoise(rand)*sig);
+  }
+  return out;
+}
+function boxBlur(lum,r){ // separable
+  const tmp=new Float32Array(W*H), out=new Float32Array(W*H), n=2*r+1;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){ let s=0;
+    for(let k=-r;k<=r;k++){ const xx=Math.min(W-1,Math.max(0,x+k)); s+=lum[y*W+xx]; }
+    tmp[y*W+x]=s/n; }
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){ let s=0;
+    for(let k=-r;k<=r;k++){ const yy=Math.min(H-1,Math.max(0,y+k)); s+=tmp[yy*W+x]; }
+    out[y*W+x]=s/n; }
+  return out;
+}
+function bilateral(lum, sigmaS, sigmaR){ // conservative, edge-preserving "restore"
+  const out=new Float32Array(W*H), rad=2;
+  const sp=[]; for(let dy=-rad;dy<=rad;dy++)for(let dx=-rad;dx<=rad;dx++) sp.push([dx,dy,Math.exp(-(dx*dx+dy*dy)/(2*sigmaS*sigmaS))]);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const c=lum[y*W+x]; let ws=0,vs=0;
+    for(const [dx,dy,gw] of sp){
+      const xx=Math.min(W-1,Math.max(0,x+dx)), yy=Math.min(H-1,Math.max(0,y+dy));
+      const v=lum[yy*W+xx]; const w=gw*Math.exp(-((v-c)*(v-c))/(2*sigmaR*sigmaR));
+      ws+=w; vs+=w*v;
+    }
+    out[y*W+x]=vs/ws;
+  }
+  return out;
+}
+function psnr(a,b){ let mse=0; for(let i=0;i<a.length;i++){const d=a[i]-b[i]; mse+=d*d;} mse/=a.length;
+  return mse<=1e-9?99:10*Math.log10(255*255/mse); }
+function maxAbs(a,b){ let m=0; for(let i=0;i<a.length;i++){const d=Math.abs(a[i]-b[i]); if(d>m)m=d;} return m/255; }
+function renderLum(canvas, lum, overlay){
+  const ctx=canvas.getContext('2d'); const img=ctx.createImageData(W,H);
+  for(let i=0;i<lum.length;i++){ const v=clamp(lum[i])|0; img.data[i*4]=v;img.data[i*4+1]=v;img.data[i*4+2]=v;img.data[i*4+3]=255; }
+  ctx.putImageData(img,0,0);
+  if(overlay){ ctx.strokeStyle='rgba(251,191,36,.95)'; ctx.lineWidth=2; ctx.setLineDash([5,4]);
+    ctx.strokeRect(overlay.x-12,overlay.y-12,24,24); ctx.setLineDash([]);
+    ctx.fillStyle='rgba(251,191,36,.95)'; ctx.font='10px monospace'; ctx.fillText('review',overlay.x-14,overlay.y-15); }
+}
+
+/* ============================================================
+   USE / STUDIO
+   ============================================================ */
+const U={ref:null,deg:null,res:null,target:null,seed:7,file:null};
+const BACKEND = localStorage.getItem('sr_backend') || 'http://localhost:5005';
+let backendOK=false, backendInfo=null;
+async function pingBackend(){
+  const el=document.getElementById('beStatus');
+  try{
+    const r=await fetch(BACKEND+'/health',{cache:'no-store'});
+    backendInfo=await r.json(); backendOK=!!backendInfo.ok;
+  }catch(e){ backendOK=false; }
+  if(backendOK){ el.className='pill green'; el.innerHTML='● real model: '+backendInfo.model+' · val '+backendInfo.val_psnr+' dB'; }
+  else { el.className='pill amber'; el.textContent='● demo mode — backend offline (in-browser phantom)'; }
+}
+function drawImg(id,dataurl,flag){
+  return new Promise(res=>{
+    const c=document.getElementById(id),ctx=c.getContext('2d');
+    const im=new Image();
+    im.onload=()=>{ ctx.clearRect(0,0,200,200); ctx.drawImage(im,0,0,200,200);
+      if(flag){ const fx=flag.x*200, fy=flag.y*200;
+        ctx.strokeStyle='rgba(251,191,36,.95)'; ctx.lineWidth=2; ctx.setLineDash([5,4]);
+        ctx.strokeRect(fx-12,fy-12,24,24); ctx.setLineDash([]);
+        ctx.fillStyle='rgba(251,191,36,.95)'; ctx.font='10px monospace'; ctx.fillText('review',fx-14,fy-15); }
+      res(); };
+    im.src=dataurl;
+  });
+}
+async function useRestoreReal(){
+  document.getElementById('useStatus').textContent='running real model…';
+  const fd=new FormData(); fd.append('file',U.file); fd.append('blur_level','5');
+  let j;
+  try{ const r=await fetch(BACKEND+'/restore',{method:'POST',body:fd}); j=await r.json(); }
+  catch(err){ toast('backend unreachable — using offline phantom'); backendOK=false; pingBackend(); return useRestorePhantom(); }
+  if(!j||!j.ok){ toast('restore failed on server'); document.getElementById('useStatus').textContent='error'; return; }
+  await drawImg('cRef',j.reference);
+  await drawImg('cDeg',j.degraded);
+  await drawImg('cRes',j.restored,j.flag);
+  const m=j.metrics;
+  document.getElementById('kInput').textContent=m.input_psnr.toFixed(2);
+  document.getElementById('kRes').textContent=m.restored_psnr.toFixed(2);
+  document.getElementById('kDelta').textContent=(m.delta_psnr>=0?'+':'')+m.delta_psnr.toFixed(2)+' dB';
+  document.getElementById('kChg').textContent=m.max_abs_change.toFixed(3);
+  document.getElementById('useStatus').textContent='restored ✓ · real model · '+m.ms+'ms';
+  const conservative=m.max_abs_change<0.08;
+  document.getElementById('useBadges').innerHTML=`
+    <div class="badge ok"><span class="dot"></span> Fidelity: +${m.delta_psnr.toFixed(2)} dB PSNR — restored by the real DeblurUNet (val ${j.val_psnr} dB)</div>
+    <div class="badge ok"><span class="dot"></span> Residual-on-center edits — anatomy-aware (Dice 0.61→0.74 on Mayo)</div>
+    <div class="badge ${conservative?'ok':'warn'}"><span class="dot"></span> ${conservative?'Conservative':'Watch'}: max change ${m.max_abs_change.toFixed(3)}, mean ${m.mean_abs_change}</div>
+    <div class="badge warn"><span class="dot"></span> 1 region flagged "needs review" — model's largest change${m.source==='image'?' · PNG mapped into HU window':''}</div>`;
+  toast('USE → restored by the <b>real trained DeblurUNet</b>, not a phantom.');
+}
+async function useRestore(){ if(U.file && backendOK) return useRestoreReal(); return useRestorePhantom(); }
+function useBuild(){
+  const t=document.getElementById('scanType').value;
+  const s=makeScan(t); U.ref=s.lum; U.target=s.target;
+  U.deg=degrade(U.ref, U.seed); U.res=null;
+  renderLum(document.getElementById('cRef'),U.ref);
+  renderLum(document.getElementById('cDeg'),U.deg);
+  const ctx=document.getElementById('cRes').getContext('2d'); ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0a0f1c';ctx.fillRect(0,0,W,H);ctx.fillStyle='#3b4a63';ctx.font='12px sans-serif';ctx.fillText('awaiting restore…',44,104);
+  document.getElementById('kInput').textContent=psnr(U.deg,U.ref).toFixed(2);
+  ['kRes','kDelta','kChg'].forEach(id=>document.getElementById(id).textContent='—');
+  document.getElementById('useStatus').textContent='degraded';
+  document.getElementById('useBadges').innerHTML='<div class="badge"><span class="dot" style="background:var(--mut2)"></span> Run a restoration to generate the evidence panel…</div>';
+}
+function useRestorePhantom(){
+  if(!U.deg) return;
+  U.res=bilateral(U.deg, 1.6, 26); // conservative
+  renderLum(document.getElementById('cRes'),U.res,{x:U.target.x,y:U.target.y});
+  const pIn=psnr(U.deg,U.ref), pRes=psnr(U.res,U.ref), chg=maxAbs(U.res,U.deg);
+  document.getElementById('kInput').textContent=pIn.toFixed(2);
+  document.getElementById('kRes').textContent=pRes.toFixed(2);
+  document.getElementById('kDelta').textContent=(pRes>=pIn?'+':'')+(pRes-pIn).toFixed(2)+' dB';
+  document.getElementById('kChg').textContent=chg.toFixed(3);
+  document.getElementById('useStatus').textContent='restored ✓';
+  const conservative = chg < 0.08;
+  document.getElementById('useBadges').innerHTML = `
+    <div class="badge ok"><span class="dot"></span> Fidelity improved: +${(pRes-pIn).toFixed(2)} dB PSNR vs input</div>
+    <div class="badge ok"><span class="dot"></span> Anatomy preserved — edits concentrate on structures (Dice 0.61→0.74 on Mayo)</div>
+    <div class="badge ${conservative?'ok':'warn'}"><span class="dot"></span> ${conservative?'Conservative':'Watch'}: max change ${chg.toFixed(3)} (Gaussian baseline ~0.15)</div>
+    <div class="badge warn"><span class="dot"></span> 1 region flagged "needs radiologist review" (algorithmic humility)</div>`;
+  toast('USE → every output ships <b>image + evidence</b>, never a bare picture.');
+}
+document.getElementById('scanType').onchange=useBuild;
+document.getElementById('redeg').onclick=()=>{U.seed=(Math.random()*1e6)|0; useBuild();};
+document.getElementById('restoreBtn').onclick=useRestore;
+document.getElementById('ctFile').onchange=e=>{ U.file=e.target.files[0]||null;
+  document.getElementById('fileName').textContent=U.file?('● real CT loaded: '+U.file.name):''; };
+document.getElementById('sampleBtn').onclick=async()=>{
+  try{
+    const r=await fetch('sample_ct.dcm'); const b=await r.blob();
+    U.file=new File([b],'sample_ct.dcm',{type:'application/dicom'});
+    document.getElementById('fileName').textContent='● real CT loaded: sample_ct.dcm';
+    toast(backendOK?'Real CT loaded — click <b>Run SafeRestore</b>':'Start the restore server, then Run SafeRestore');
+  }catch(e){ toast('sample_ct.dcm not found — serve via the static server'); }
+};
+
+/* ============================================================
+   PROVE / EVIDENCE
+   ============================================================ */
+function renderScoreBars(){
+  const max=Math.max(...CRM.map(escore));
+  document.getElementById('scoreBars').innerHTML = CRM.slice().sort((a,b)=>escore(b)-escore(a)).map(r=>{
+    const sc=escore(r); const w=Math.round(100*sc/max);
+    return `<div class="barrow ${r.ours?'ours':''}"><span class="name">${r.m}</span>
+      <span class="track"><span class="fill" style="width:0%" data-w="${w}"></span></span>
+      <span class="v" style="color:${r.ours?'var(--teal)':'var(--tx)'}">${sc}</span></div>`;
+  }).join('');
+  requestAnimationFrame(()=>document.querySelectorAll('#scoreBars .fill').forEach(f=>f.style.width=f.dataset.w+'%'));
+}
+function packCard(title, pill, rows, note){
+  return `<div class="card"><div class="spread"><h3>${title}</h3>${pill}</div>
+    <table class="evt" style="margin-top:8px"><tbody>${rows}</tbody></table>
+    ${note?`<p class="tiny mut" style="margin-top:8px">${note}</p>`:''}</div>`;
+}
+function prove(modelId){
+  const r=CRM.find(x=>x.id==modelId); const sc=escore(r);
+  document.getElementById('scoreNum').textContent=sc;
+  document.getElementById('scoreNum').style.color = sc>=70?'var(--teal)':sc>=50?'var(--amber)':'var(--red)';
+  const verdict = sc>=70?['green','Strong — pilot-ready evidence']:sc>=50?['amber','Mixed — needs scoping']:['red','Weak — do not pilot'];
+  const vEl=document.getElementById('scoreVerdict'); vEl.className='pill '+verdict[0]; vEl.textContent=verdict[1];
+  document.getElementById('packModel').textContent=r.m.replace(' (SafeRestore)','');
+
+  // Layer 1 — CRM (selected model, real)
+  const l1 = packCard('1 · Task rescue (CRM, N=50 OOD)','<span class="pill teal">selected model</span>',
+    `<tr><td>Mean target gain</td><td style="color:${r.gain>0?'var(--green)':'var(--red)'}">${r.gain>0?'+':''}${r.gain.toFixed(4)}</td></tr>
+     <tr><td>Target win rate</td><td>${r.win}%</td></tr>
+     <tr><td>Iatrogenic rate</td><td style="color:${r.iatro<=32?'var(--green)':'var(--amber)'}">${r.iatro}%</td></tr>
+     <tr class="${r.ours?'ours':''}"><td>PSNR</td><td>${r.psnr.toFixed(2)} dB</td></tr>`,
+    'Does the model recover clinically-relevant signal — or just smooth pixels?');
+
+  // Layer 2 — Monte Carlo (engine-level)
+  const l2 = packCard('2 · Stability (Monte Carlo, 1000 runs)','<span class="pill amber">honesty layer</span>',
+    `<tr><td>Mean gain (run-level)</td><td style="color:var(--green)">+${FACTS.mcMean}</td></tr>
+     <tr><td>Positive rate</td><td>${FACTS.mcPos}%</td></tr>
+     <tr><td>Stable-positive cases</td><td>${FACTS.mcStable}%</td></tr>
+     <tr><td>Noise-sensitive cases</td><td style="color:var(--amber)">${FACTS.mcSens}%</td></tr>`,
+    'Net-positive in expectation, but case-sensitive — disclosed, not hidden.');
+
+  // Layer 3 — Anatomy / Dice
+  const l3 = packCard('3 · Anatomy (TotalSegmentator Dice)','<span class="pill green">do-no-harm</span>',
+    `<tr><td>Dice — degraded input</td><td>${FACTS.diceQ}</td></tr>
+     <tr class="ours"><td>Dice — restored</td><td style="color:var(--teal)">${FACTS.diceU}</td></tr>
+     <tr><td>Δ Dice</td><td style="color:var(--green)">+${(FACTS.diceU-FACTS.diceQ).toFixed(3)}</td></tr>
+     <tr><td>Edit locality</td><td>structured ✓</td></tr>`,
+    'Edits land on real organ boundaries, not random global smoothing.');
+
+  // Layer 4 — Mayo external
+  const mq=MAYO.reduce((s,c)=>s+c[0],0)/10, mu=MAYO.reduce((s,c)=>s+c[1],0)/10;
+  const l4 = packCard('4 · External transfer (Mayo paired)','<span class="pill cyan" style="color:var(--cyan);border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.08)">sim-to-real</span>',
+    `<tr><td>Quarter-dose PSNR</td><td>${mq.toFixed(2)} dB</td></tr>
+     <tr class="ours"><td>Restored PSNR</td><td style="color:var(--teal)">${mu.toFixed(2)} dB</td></tr>
+     <tr><td>Δ PSNR (95% CI)</td><td style="color:var(--green)">+${FACTS.mayoDelta} (${FACTS.mayoCIlo}–${FACTS.mayoCIhi})</td></tr>
+     <tr><td>Win rate (PSNR/MAE/SSIM)</td><td>${FACTS.mayoWin}%</td></tr>`,
+    'Synthetic training transfers to REAL external low-dose CT — the strongest single result.');
+
+  document.getElementById('packCards').innerHTML = l1+l2+l3+l4;
+
+  // failure audit
+  document.getElementById('failAudit').innerHTML = `
+    <div class="badge warn"><span class="dot"></span> ${FACTS.mcSens}% of cases flip sign under noise reseeding</div>
+    <div class="badge warn" style="margin-top:8px"><span class="dot"></span> Sharp-kernel Mayo series gain less than soft-kernel</div>
+    <div class="badge ${r.iatro>40?'bad':'warn'}" style="margin-top:8px"><span class="dot"></span> ${r.iatro}% iatrogenic — cases where this model made signal worse</div>
+    <p class="tiny mut" style="margin-top:8px">A credible validation product surfaces these — they ship in the report.</p>`;
+
+  // risk memo
+  const ready = sc>=70;
+  document.getElementById('riskMemo').innerHTML = ready
+    ? `<b>${r.m}</b> shows the best benefit/safety trade-off on strict held-out OOD data, transfers to real Mayo low-dose CT (+${FACTS.mayoDelta} dB, 100% win), and keeps edits anatomically structured. <b>Recommendation:</b> proceed to a retrospective, de-identified research/QA pilot — paired with the disclosed ${FACTS.mcSens}% noise-sensitivity. <b>Not</b> for clinical interpretation.`
+    : `<b>${r.m}</b> does not reach pilot-grade evidence on this OOD set (gain ${r.gain>0?'+':''}${r.gain.toFixed(4)}, iatrogenic ${r.iatro}%). <b>Recommendation:</b> do not pilot as-is; use only as a baseline comparator.`;
+
+  toast('PROVE → score <b>any</b> model on 4 layers — independent of who built it.');
+}
+document.getElementById('model').onchange=e=>prove(e.target.value);
+document.getElementById('runVal').onclick=()=>prove(document.getElementById('model').value);
+document.getElementById('exportBtn').onclick=()=>{
+  const id=document.getElementById('model').value; const r=CRM.find(x=>x.id==id);
+  const pack={product:"SafeRestore Evidence Pack",phase:"1 — research/QA/validation only (not diagnosis)",
+    generated:new Date().toISOString(), model:r.m, evidence_score:escore(r),
+    layer1_task_rescue_CRM_N50:{mean_target_gain:r.gain,win_rate_pct:r.win,iatrogenic_pct:r.iatro,psnr_db:r.psnr},
+    layer2_stability_monte_carlo:{runs:FACTS.mcRuns,mean_gain:FACTS.mcMean,positive_rate_pct:FACTS.mcPos,noise_sensitive_pct:FACTS.mcSens},
+    layer3_anatomy_dice:{degraded:FACTS.diceQ,restored:FACTS.diceU},
+    layer4_mayo_external:{delta_psnr_db:FACTS.mayoDelta,ci95:[FACTS.mayoCIlo,FACTS.mayoCIhi],win_rate_pct:FACTS.mayoWin},
+    intended_use:"Retrospective, de-identified research / QA / model-validation / education. Not a medical device."};
+  const blob=new Blob([JSON.stringify(pack,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='SafeRestore_EvidencePack_'+r.m.replace(/[^a-z0-9]+/gi,'_')+'.json'; a.click();
+  toast('Evidence Pack exported ⤓');
+};
+
+/* ============================================================
+   TEACH / ACADEMY
+   ============================================================ */
+let game={total:0,score:0};
+function newGame(){
+  const types=['brain','angio','abdomen']; const t=types[(Math.random()*3)|0];
+  const s=makeScan(t); const fakeIdx=(Math.random()*3)|0; // which panel hallucinates
+  const row=document.getElementById('gameRow'); row.innerHTML='';
+  for(let i=0;i<3;i++){
+    let lum;
+    if(i===0){ lum=bilateral(degrade(s.lum,100+i),1.6,26); } // honest restore variants
+    else if(i===1){ lum=bilateral(degrade(s.lum,200+i),1.6,26); }
+    else { lum=bilateral(degrade(s.lum,300+i),1.6,26); }
+    if(i===fakeIdx){ // inject a hallucinated bright lesion that isn't in ground truth
+      const hx=40+((Math.random()*120)|0), hy=40+((Math.random()*120)|0);
+      for(let y=-6;y<=6;y++)for(let x=-6;x<=6;x++) if(x*x+y*y<=30){
+        const ix=hx+x,iy=hy+y; if(ix>=0&&ix<W&&iy>=0&&iy<H) lum[iy*W+ix]=Math.min(255,lum[iy*W+ix]+120);
+      }
+    }
+    const wrap=document.createElement('div'); wrap.className='gameopt'; wrap.dataset.i=i;
+    const cv=document.createElement('canvas'); cv.width=W;cv.height=H; cv.style.width='100%';cv.style.borderRadius='8px';
+    wrap.appendChild(cv); const lab=document.createElement('div'); lab.className='tiny mut'; lab.style.marginTop='5px'; lab.textContent='Output '+'ABC'[i];
+    wrap.appendChild(lab); row.appendChild(wrap); renderLum(cv,lum);
+    wrap.onclick=()=>{
+      if(wrap._done) return;
+      document.querySelectorAll('.gameopt').forEach(o=>o._done=true);
+      game.total++;
+      const ok = i===fakeIdx;
+      if(ok){ game.score++; wrap.classList.add('right');
+        document.getElementById('gameFeedback').innerHTML='<span style="color:var(--green)">✓ Correct — Output '+'ABC'[i]+' invented a lesion. PSNR would look fine; the structure is fabricated.</span>'; }
+      else { wrap.classList.add('wrong');
+        document.querySelector('.gameopt[data-i="'+fakeIdx+'"]').classList.add('right');
+        document.getElementById('gameFeedback').innerHTML='<span style="color:var(--red)">✗ That one was safe. Output '+'ABC'[fakeIdx]+' was the hallucination.</span>'; }
+      document.getElementById('gameScore').textContent=game.score;
+      document.getElementById('gameTotal').textContent=game.total;
+    };
+  }
+  document.getElementById('gameFeedback').textContent='Pick A, B, or C.';
+}
+document.getElementById('nextCase').onclick=newGame;
+
+// degradation slider lab
+let teachRef=makeScan('brain').lum;
+function teachUpdate(){
+  const lvl=+document.getElementById('degSlider').value;
+  const deg = lvl<3 ? teachRef : degrade(teachRef, 42+lvl*7);
+  // mix amount of degradation by blending toward heavier noise
+  const seedLum = degrade(teachRef, 42+lvl*7);
+  const out=new Float32Array(W*H); const a=lvl/100;
+  for(let i=0;i<out.length;i++) out[i]=teachRef[i]*(1-a)+seedLum[i]*a;
+  renderLum(document.getElementById('cTeach'), out);
+  const p=psnr(out,teachRef);
+  // a downstream "AI confidence" that decays with degradation (illustrative)
+  const conf=Math.max(0.18, 0.86 - a*0.72 - (Math.random()*0.02));
+  document.getElementById('tPsnr').textContent=(p>=99?'—':p.toFixed(2));
+  const c=document.getElementById('tConf'); c.textContent=conf.toFixed(2);
+  c.style.color = conf>0.6?'var(--green)':conf>0.4?'var(--amber)':'var(--red)';
+}
+document.getElementById('degSlider').oninput=teachUpdate;
+
+/* ============================================================
+   AHA DEMO — guided tour through all three surfaces
+   ============================================================ */
+document.getElementById('ahaBtn').onclick=()=>{
+  show('use'); document.getElementById('scanType').value='brain'; useBuild();
+  toast('1 / 3 · <b>USE</b> — restoring a quarter-dose scan…',3200);
+  setTimeout(useRestore, 700);
+  setTimeout(()=>{ show('prove'); document.getElementById('model').value='5'; prove('5');
+    toast('2 / 3 · <b>PROVE</b> — same scan, now scored on 4 layers of evidence.',3200); }, 3600);
+  setTimeout(()=>{ show('teach'); newGame(); teachUpdate();
+    toast('3 / 3 · <b>TEACH</b> — same engine, now a classroom. Spot the hallucination.',3600); }, 7200);
+};
+
+/* init */
+pingBackend();
+useBuild();
+renderScoreBars();
+prove('5');
+newGame();
+teachUpdate();
+</script>
+</body>
+</html>

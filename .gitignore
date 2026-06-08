@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/
+
+# secrets & local config — never commit
+.env
+.env.*
+*.local
+
+# node (if a frontend build is added later)
+node_modules/
+dist/
+
+# experiment outputs (keep medical data + big logs out of git)
+experiment_logs/
+*.csv
+data/
+*.nii
+*.nii.gz
+# NOTE: deblur_25d_v2.pt IS intentionally committed so the app runs on clone.
