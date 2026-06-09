@@ -21,7 +21,10 @@ bilateral) → PSNR measured live on `<canvas>`. Good for pitching on any laptop
 pip install flask flask-cors torch pydicom pillow opencv-python numpy   # one time
 python3 saferestore-mvp/restore_server.py        # serves http://localhost:5005
 
-# terminal B — serve the page over http (clean CORS), then open it
+# then open the app served by Flask
+#   → open http://localhost:5005
+#
+# Optional: serve the page separately over http if you prefer
 python3 -m http.server 4178 --directory saferestore-mvp
 #   → open http://localhost:4178
 ```

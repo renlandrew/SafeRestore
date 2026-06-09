@@ -46,7 +46,7 @@ import torch.nn as nn
 import cv2
 import pydicom
 from PIL import Image
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
 
@@ -168,6 +168,14 @@ def flag_region(rec01, deg01):
 # ── app ──────────────────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app)
+
+@app.route("/")
+def index():
+    return send_from_directory(_HERE, "index.html")
+
+@app.route("/sample_ct.dcm")
+def sample_ct():
+    return send_from_directory(_HERE, "sample_ct.dcm")
 
 @app.route("/health")
 def health():
