@@ -4,6 +4,8 @@
 
 > This is your *one* job this week. The bigger plan (`TASK-David.md` / `TASK-Nick.md`) is for after —
 > ignore it for now. Just produce the small deliverable below and bring it next class.
+>
+> **Mission:** safety = a machine you can trust (**David**) **+** a human who can catch it (**Nick**).
 
 ---
 
@@ -22,16 +24,14 @@
 
 ---
 
-## Nick — build a tiny lesson and test it on 3–5 people
+## Nick — first evidence we can train the human to catch the AI's errors
 
-**Goal:** a first "spot the AI error" lesson, and the first hint that it teaches.
+**Goal:** the first hint that practice makes people catch the AI's mistakes (the human half of safety).
 
-1. **Write the target:** one sentence — *who* you teach + *what* they'll be able to do — and **3 skills**.
-2. **Build the mini-lesson:** open the **Teach** surface in `saferestore-mvp/index.html`. Write a 1-page
-   script: what to show, in what order, what question to ask (use "spot the hallucination" + the slider).
-3. **Mini pre/post on 3–5 people** (friends/family OK): pre-score them on 4 images ("which was altered?")
-   → let them use the tool 5 min → post-score on 4 new images. Record scores in a small table.
-4. **Write 2 sentences:** what you saw (honest — "early signal, n=4"), and one thing to improve.
+1. **Write the target:** one sentence — *who* is the human in the loop + the **3 error types** they must catch (hallucinated structure / erased signal / over-smoothing).
+2. **Build the mini-drill:** open the **Teach** surface in `saferestore-mvp/index.html`. Write a 1-page script: what to show, what to ask ("where did the AI change something it shouldn't — trust or refer?").
+3. **Mini pre/post on 3–5 people** (friends/family OK): pre-score them catching AI errors on 4 cases → run the drill 5 min → post-score on 4 new cases. Record scores in a small table.
+4. **Write 2 sentences:** did they catch more after? (honest — "early signal, n=4") + one thing to improve.
 
 **Bring to next class:** the 1-page script + the pre/post score table + 2 sentences. That's it.
 

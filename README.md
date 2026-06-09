@@ -1,8 +1,9 @@
 # SafeRestore
 
-**The trust layer for CT-restoration AI** — one engine (*degrade ⇄ restore ⇄ evidence*) with three
-surfaces: **prove** a model is safe, **use** it to restore real CT, **teach** people to catch AI errors.
-Thesis: **evidence, not images.**
+**Safe AI-assisted CT reading = a machine you can trust + a human who can catch it.** SafeRestore proves
+**both halves of safety**: it **validates** that a CT-restoration model is do-no-harm (machine half) and
+**trains the reader** to catch the model's residual errors — beating automation bias (human half).
+**One failure, two defenses.**
 
 This repo is self-contained — clone it and you have the **frontend + backend + the trained model**.
 

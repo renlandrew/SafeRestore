@@ -1,9 +1,10 @@
-# Task Card — David · Use / Safety
+# Task Card — David · the MACHINE half of safety
 
-**Mission:** Prove, on *real* CT, that SafeRestore improves image quality **without damaging anatomy**
-— and find exactly where it breaks.
+**Mission:** Prove, on *real* CT, that the restoration model improves image quality **without damaging
+anatomy** — and find exactly where it breaks. You make the *machine* trustworthy; Nick trains the *human*
+to catch what's left.
 
-> Read `README.md` (ground rules) first. You own the **Use** surface + the safety evidence.
+> Read `README.md` (mission + rules) first. You own the **Use** surface + the machine-side safety evidence.
 
 ## Your research question & hypothesis
 - **Question:** Does the restoration model improve quality on real low-dose CT while preserving structure?
@@ -26,7 +27,7 @@
 
 **Step 4 — Failure catalog (Week 2–3)**
 - Collect the worst cases. For each: the image + one line on *why* it failed (edge? small vessel?).
-- **done =** ≥5 documented failures. Hand these to Nick for his lesson.
+- **done =** ≥5 documented failures. These are the **threat model** — hand them to Nick; they become exactly what his human-side training defends against.
 
 **Step 5 — Safety Report + demo (Week 3–4)**
 - 1 page: what the evidence shows · **what it does NOT prove** · the Phase-1 boundary.
