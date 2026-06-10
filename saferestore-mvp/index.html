@@ -119,6 +119,11 @@
   .kpi .lab{font-size:11.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em}
   .kpi .val{font-size:22px;font-weight:800;font-family:ui-monospace,Menlo,monospace;margin-top:2px}
 
+  .scan-progress{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:rgba(22,33,58,.35)}
+  .scan-progress .top{display:flex;justify-content:space-between;gap:12px;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:8px}
+  .scan-progress .track{height:10px;border-radius:999px;background:rgba(148,163,184,.12);overflow:hidden}
+  .scan-progress .fill{height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--teal));transition:width .25s ease}
+
   .badge{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:10px;font-size:13.5px;font-weight:600;
     border:1px solid var(--line);background:rgba(22,33,58,.4)}
   .badge .dot{width:9px;height:9px;border-radius:50%;flex:none}
@@ -248,14 +253,16 @@
       <div>
         <div class="eyebrow" style="color:var(--teal)">Use · Studio &nbsp;—&nbsp; owner: David</div>
         <h2 style="margin-top:8px">Restoration you can trust, because it ships with proof</h2>
-        <p class="mut small" style="max-width:680px"><b>Upload a real CT slice (DICOM/PNG)</b> and it is restored by the actual trained <span class="mono">DeblurUNet25D</span> model when the local server is running — otherwise an in-browser phantom keeps the demo working offline. Either way it is degraded to a synthetic quarter-dose, restored, and PSNR is measured against the reference. Crucially, <b>the image always comes bundled with its evidence.</b></p>
+        <p class="mut small" style="max-width:680px"><b>Upload a real 3D CT folder (DICOM series)</b> and it is restored by the actual trained <span class="mono">DeblurUNet25D</span> model when the local server is running — otherwise an in-browser phantom keeps the demo working offline. The server sorts the slices, denoises the volume with 2.5D neighbor context, and shows a representative denoised slice with volume-level improvement metrics. Crucially, <b>the image always comes bundled with its evidence.</b></p>
       </div>
     </div>
 
     <div class="card" style="margin-top:16px">
       <div class="controls">
-        <label class="btn ghost" for="ctFile" style="cursor:pointer">⤴ Upload CT (DICOM / PNG)</label>
-        <input id="ctFile" type="file" accept=".dcm,.dicom,.png,.jpg,.jpeg" style="display:none">
+        <label class="btn ghost" for="ctFolder" style="cursor:pointer">⤴ Upload 3D CT folder</label>
+        <input id="ctFolder" type="file" accept=".dcm,.dicom" multiple webkitdirectory directory style="display:none">
+        <label class="btn ghost" for="ctSingle" style="cursor:pointer">Upload single DICOM</label>
+        <input id="ctSingle" type="file" accept=".dcm,.dicom,application/dicom" style="display:none">
         <button class="btn ghost" id="sampleBtn">Load sample CT</button>
         <select id="scanType" title="phantom used for the offline demo">
           <option value="brain">Demo phantom — head CT</option>
@@ -269,6 +276,13 @@
         <span class="pill" id="beStatus">checking backend…</span>
         <span class="pill" id="useStatus">ready</span>
         <span class="tiny mut" id="fileName"></span>
+      </div>
+      <div class="scan-progress" id="scanProgress" hidden>
+        <div class="top">
+          <span id="scanProgressText">waiting…</span>
+          <span class="mono" id="scanProgressCount">0 / 0</span>
+        </div>
+        <div class="track"><div class="fill" id="scanProgressFill"></div></div>
       </div>
 
       <div class="canvas-row" style="margin-top:16px">
@@ -567,7 +581,7 @@ function renderLum(canvas, lum, overlay){
 /* ============================================================
    USE / STUDIO
    ============================================================ */
-const U={ref:null,deg:null,res:null,target:null,seed:7,file:null};
+const U={ref:null,deg:null,res:null,target:null,seed:7,files:[],progressTimer:null};
 const BACKEND = localStorage.getItem('sr_backend') || 'http://localhost:5005';
 let backendOK=false, backendInfo=null;
 async function pingBackend(){
@@ -593,12 +607,34 @@ function drawImg(id,dataurl,flag){
   });
 }
 async function useRestoreReal(){
-  document.getElementById('useStatus').textContent='running real model…';
-  const fd=new FormData(); fd.append('file',U.file); fd.append('blur_level','5');
+  const restoreBtn=document.getElementById('restoreBtn');
+  const jobId=newJobId();
+  stopProgressPolling();
+  setScanProgress(0,'uploading DICOM scan…',0,U.files.length||0);
+  document.getElementById('useStatus').textContent=U.files.length>1?'running real model on volume…':'running real model…';
+  restoreBtn.disabled=true;
+  const fd=new FormData();
+  for(const file of U.files) fd.append('files',file,file.webkitRelativePath||file.name);
+  fd.append('blur_level','5');
+  fd.append('job_id',jobId);
+  U.progressTimer=setInterval(()=>pollScanProgress(jobId),500);
   let j;
   try{ const r=await fetch(BACKEND+'/restore',{method:'POST',body:fd}); j=await r.json(); }
-  catch(err){ toast('backend unreachable — using offline phantom'); backendOK=false; pingBackend(); return useRestorePhantom(); }
-  if(!j||!j.ok){ toast('restore failed on server'); document.getElementById('useStatus').textContent='error'; return; }
+  catch(err){
+    stopProgressPolling();
+    restoreBtn.disabled=false;
+    setScanProgress(0,'backend unreachable',0,U.files.length||0);
+    toast('backend unreachable — using offline phantom'); backendOK=false; pingBackend(); return useRestorePhantom();
+  }
+  stopProgressPolling();
+  restoreBtn.disabled=false;
+  if(!j||!j.ok){
+    toast('restore failed on server');
+    document.getElementById('useStatus').textContent='error';
+    setScanProgress(0,'restore failed',0,U.files.length||0);
+    return;
+  }
+  setScanProgress(100,'done: CT scan restored',j.metrics.slices,j.metrics.slices);
   await drawImg('cRef',j.reference);
   await drawImg('cDeg',j.degraded);
   await drawImg('cRes',j.restored,j.flag);
@@ -609,14 +645,44 @@ async function useRestoreReal(){
   document.getElementById('kChg').textContent=m.max_abs_change.toFixed(3);
   document.getElementById('useStatus').textContent='restored ✓ · real model · '+m.ms+'ms';
   const conservative=m.max_abs_change<0.08;
+  const isVolume=m.slices&&m.slices>1;
+  const sourceNote=m.source==='image'?' · PNG mapped into HU window':(isVolume?` · ${m.slices} slices · showing slice ${m.display_slice}`:'');
   document.getElementById('useBadges').innerHTML=`
-    <div class="badge ok"><span class="dot"></span> Fidelity: +${m.delta_psnr.toFixed(2)} dB PSNR — restored by the real DeblurUNet (val ${j.val_psnr} dB)</div>
-    <div class="badge ok"><span class="dot"></span> Residual-on-center edits — anatomy-aware (Dice 0.61→0.74 on Mayo)</div>
+    <div class="badge ok"><span class="dot"></span> Fidelity: +${m.delta_psnr.toFixed(2)} dB PSNR — restored by the real DeblurUNet (val ${j.val_psnr} dB)${isVolume?' over the uploaded volume':''}</div>
+    <div class="badge ok"><span class="dot"></span> ${isVolume?'2.5D prev/center/next slice context':'Residual-on-center edits'} — anatomy-aware (Dice 0.61→0.74 on Mayo)</div>
     <div class="badge ${conservative?'ok':'warn'}"><span class="dot"></span> ${conservative?'Conservative':'Watch'}: max change ${m.max_abs_change.toFixed(3)}, mean ${m.mean_abs_change}</div>
-    <div class="badge warn"><span class="dot"></span> 1 region flagged "needs review" — model's largest change${m.source==='image'?' · PNG mapped into HU window':''}</div>`;
-  toast('USE → restored by the <b>real trained DeblurUNet</b>, not a phantom.');
+    <div class="badge warn"><span class="dot"></span> 1 region flagged "needs review" — model's largest change${sourceNote}</div>`;
+  toast(isVolume?'USE → restored a <b>3D CT DICOM series</b> with the real trained DeblurUNet.':'USE → restored by the <b>real trained DeblurUNet</b>, not a phantom.');
 }
-async function useRestore(){ if(U.file && backendOK) return useRestoreReal(); return useRestorePhantom(); }
+async function useRestore(){ if(U.files.length && backendOK) return useRestoreReal(); return useRestorePhantom(); }
+function newJobId(){
+  if(window.crypto&&crypto.randomUUID) return crypto.randomUUID();
+  return 'job-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+}
+function setScanProgress(percent,label,done,total){
+  const box=document.getElementById('scanProgress');
+  const fill=document.getElementById('scanProgressFill');
+  const text=document.getElementById('scanProgressText');
+  const count=document.getElementById('scanProgressCount');
+  const pct=Math.max(0,Math.min(100,Number(percent)||0));
+  box.hidden=false;
+  fill.style.width=pct+'%';
+  text.textContent=label||'processing CT scan…';
+  count.textContent=`${done||0} / ${total||0}`;
+}
+function stopProgressPolling(){
+  if(U.progressTimer){ clearInterval(U.progressTimer); U.progressTimer=null; }
+}
+async function pollScanProgress(jobId){
+  try{
+    const r=await fetch(BACKEND+'/progress/'+encodeURIComponent(jobId),{cache:'no-store'});
+    const j=await r.json();
+    if(j&&j.ok){
+      setScanProgress(j.percent,j.label,j.done,j.total);
+      if(j.phase==='done'||j.phase==='error') stopProgressPolling();
+    }
+  }catch(e){}
+}
 function useBuild(){
   const t=document.getElementById('scanType').value;
   const s=makeScan(t); U.ref=s.lum; U.target=s.target;
@@ -628,6 +694,7 @@ function useBuild(){
   document.getElementById('kInput').textContent=psnr(U.deg,U.ref).toFixed(2);
   ['kRes','kDelta','kChg'].forEach(id=>document.getElementById(id).textContent='—');
   document.getElementById('useStatus').textContent='degraded';
+  document.getElementById('scanProgress').hidden=true;
   document.getElementById('useBadges').innerHTML='<div class="badge"><span class="dot" style="background:var(--mut2)"></span> Run a restoration to generate the evidence panel…</div>';
 }
 function useRestorePhantom(){
@@ -651,13 +718,32 @@ function useRestorePhantom(){
 document.getElementById('scanType').onchange=useBuild;
 document.getElementById('redeg').onclick=()=>{U.seed=(Math.random()*1e6)|0; useBuild();};
 document.getElementById('restoreBtn').onclick=useRestore;
-document.getElementById('ctFile').onchange=e=>{ U.file=e.target.files[0]||null;
-  document.getElementById('fileName').textContent=U.file?('● real CT loaded: '+U.file.name):''; };
+function loadDicomFiles(fileList, mode){
+  U.files=Array.from(fileList||[]).filter(f=>/\.(dcm|dicom)$/i.test(f.name));
+  document.getElementById('scanProgress').hidden=true;
+  if(!U.files.length){
+    document.getElementById('fileName').textContent='';
+    toast(mode==='single'?'Select a .dcm or .dicom file.':'Select a folder that contains DICOM slices.');
+    return;
+  }
+  if(mode==='single'){
+    U.files=U.files.slice(0,1);
+    document.getElementById('fileName').textContent='● real CT slice loaded: '+U.files[0].name;
+    toast(backendOK?'Single DICOM loaded — click <b>Run SafeRestore</b>':'Start the restore server, then Run SafeRestore');
+    return;
+  }
+  const folder=(U.files[0].webkitRelativePath||'').split('/')[0];
+  const label=folder?`${folder} · ${U.files.length} DICOM slices`:`${U.files.length} DICOM slices`;
+  document.getElementById('fileName').textContent='● real CT volume loaded: '+label;
+}
+document.getElementById('ctFolder').onchange=e=>loadDicomFiles(e.target.files,'folder');
+document.getElementById('ctSingle').onchange=e=>loadDicomFiles(e.target.files,'single');
 document.getElementById('sampleBtn').onclick=async()=>{
   try{
     const r=await fetch('sample_ct.dcm'); const b=await r.blob();
-    U.file=new File([b],'sample_ct.dcm',{type:'application/dicom'});
+    U.files=[new File([b],'sample_ct.dcm',{type:'application/dicom'})];
     document.getElementById('fileName').textContent='● real CT loaded: sample_ct.dcm';
+    document.getElementById('scanProgress').hidden=true;
     toast(backendOK?'Real CT loaded — click <b>Run SafeRestore</b>':'Start the restore server, then Run SafeRestore');
   }catch(e){ toast('sample_ct.dcm not found — serve via the static server'); }
 };

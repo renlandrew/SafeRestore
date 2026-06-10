@@ -32,8 +32,10 @@ In the **Use · Studio** tab the status pill turns green (`● real model: Deblu
 Click **Load sample CT** (a real bundled DICOM) → **Run SafeRestore**. The image is sent to the server,
 degraded with the real physics forward model, restored by the trained network, and you get **real metrics**
 (e.g. +4.22 dB on the sample) plus the model's actual largest-change region as the "needs review" flag.
-You can also **Upload CT (DICOM / PNG)** of your own. If the server is off, the app silently falls back to
-the offline phantom — the demo never breaks.
+You can also **Upload 3D CT folder** with a DICOM series of your own. The server sorts the slices, runs
+the 2.5D model with real prev/center/next slice context, reports volume-level metrics, and displays a
+representative denoised slice. If the server is off, the app silently falls back to the offline phantom
+— the demo never breaks.
 
 ---
 
@@ -55,12 +57,13 @@ always works).
 
 - Loads `deblur_25d_v2.pt` — a **2.5D DeblurUNet** (`in_ch=4`, `base=32`, 1.93M params, val PSNR 37.42 dB).
   Input channels = `[prev_slice, center_slice, next_slice, blur_level_map]`; residual on the center channel.
-- Per request it runs the notebook's controlled loop: **read → map to HU-normalized [0,1] → degrade
+- Per request it runs the notebook's controlled loop: **read DICOM series → sort/stack slices → map to HU-normalized [0,1] → degrade
   (gaussian PSF + dose-matched Poisson-Gaussian noise) → restore → measure**. Metrics are in HU-01 space,
   matching the notebook's Mayo magnitudes (mean change ~0.01–0.02).
-- DICOM is read with true HU (slope/intercept); PNG/JPG is mapped through a soft-tissue window into the
-  model's input distribution.
-- Endpoints: `GET /health`, `POST /restore` (multipart `file` + optional `blur_level`). CORS open.
+- DICOM is read with true HU (slope/intercept). Single-slice DICOM and PNG/JPG are still accepted by the
+  server for fallback/sample use.
+- Endpoints: `GET /health`, `POST /restore` (multipart `files` DICOM series or `file` fallback + optional
+  `blur_level`). CORS open.
 - Env: `DEBLUR_CKPT` (default `~/Downloads/deblur_25d_v2.pt`), `PORT` (default 5005).
 
 ### Honest note on the model + data
@@ -77,7 +80,7 @@ Research / QA / model-validation / education artifacts only. **Not** diagnosis, 
 **not** for direct clinical interpretation. Every restored image carries a "radiologist review required" flag.
 
 ## Where each owner takes it next
-- **David / Use:** point `restore_server.py` at a real low-dose/full-dose paired set; stream multi-slice DICOM volumes.
+- **David / Use:** point `restore_server.py` at a real low-dose/full-dose paired set; add streaming/progress for large multi-slice DICOM volumes.
 - **Andrew / Prove:** turn `prove()` into a real call to a `/validate` endpoint that runs the 4 layers on an uploaded model's outputs.
 - **Nick / Teach:** make the capstone require students to run Use + Prove on a real case and submit the exported Evidence Pack.
 
